@@ -2,9 +2,8 @@
 set -euo pipefail
 
 SERVICE=/etc/systemd/system/ssh-hostkey-init.service
-MARKER=/var/lib/ssh-hostkey-init.done
 
-echo "[*] Installing first-boot SSH hostkey service (idempotent)..."
+echo "[*] Installing first-boot SSH hostkey service..."
 
 if [ ! -f "$SERVICE" ]; then
 cat >"$SERVICE" <<'EOF'
@@ -16,7 +15,6 @@ ConditionPathExists=!/etc/ssh/ssh_host_rsa_key
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/ssh-keygen -A
-ExecStartPost=/usr/bin/touch /var/lib/ssh-hostkey-init.done
 
 [Install]
 WantedBy=multi-user.target
@@ -44,10 +42,18 @@ echo "[*] Resetting machine-id..."
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id
 
-echo "[*] Cleaning cloud-init state (if present)..."
+echo "[*] Cleaning cloud-init state (if installed)..."
 if command -v cloud-init >/dev/null 2>&1; then
   cloud-init clean --logs
 fi
 
-echo "[*] Template prepared. Shut down and convert to template."
+echo "[*] Cleaning system logs..."
+
+rm -f /var/log/syslog /var/log/messages 2>/dev/null || true
+rm -f /var/log/auth.log /var/log/secure 2>/dev/null || true
+
+journalctl --rotate || true
+journalctl --vacuum-time=1s || true
+
+echo "[*] Template prepared. Power off and convert to template."
 sync
