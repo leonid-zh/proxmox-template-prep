@@ -5,12 +5,17 @@ Production-ready script for preparing Linux virtual machines before converting t
 ## Features
 
 - Installs one-time systemd service for SSH host key regeneration on first boot
+- Uses `examples/systemd-hostkey-unit.service` as the source template for unit content
+- Reuses existing service file if it already exists
 - Removes existing SSH host keys from the template
 - Clears all user shell history
 - Resets machine-id
 - Cleans cloud-init state (if present)
 - Updates system packages
 - Performs apt cleanup (autoremove + autoclean)
+- Cleans system logs and journal
+- Runs in quiet mode (shows step messages, hides command output)
+- Asks at the end whether to power off the VM
 
 ## Why this exists
 
@@ -41,4 +46,14 @@ On first boot of each clone:
 
 ```bash
 sudo ./prepare-template.sh
-shutdown -h now
+```
+
+At the end of the run, the script asks:
+
+```text
+Power off now? [y/N]
+```
+
+- `y` / `yes`: powers off the VM
+- any other input (or Enter): skips power off
+- non-interactive shell: power-off prompt is skipped automatically

@@ -3,24 +3,19 @@ set -euo pipefail
 set +x
 
 SERVICE=/etc/systemd/system/ssh-hostkey-init.service
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SERVICE_TEMPLATE="$SCRIPT_DIR/systemd/systemd-hostkey-unit.service"
 
 echo "[*] Installing first-boot SSH hostkey service..."
 
 if [ ! -f "$SERVICE" ]; then
-echo "[*] Writing service file: $SERVICE"
-cat >"$SERVICE" <<'EOF'
-[Unit]
-Description=Generate SSH host keys on first boot
-Before=ssh.service
-ConditionPathExists=!/etc/ssh/ssh_host_rsa_key
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/ssh-keygen -A
-
-[Install]
-WantedBy=multi-user.target
-EOF
+echo "[*] Checking service template..."
+if [ ! -f "$SERVICE_TEMPLATE" ]; then
+  echo "[!] Service template not found: $SERVICE_TEMPLATE"
+  exit 1
+fi
+echo "[*] Copying service template..."
+install -m 0644 "$SERVICE_TEMPLATE" "$SERVICE" >/dev/null 2>&1
 else
 echo "[*] Service file already exists: $SERVICE"
 fi
