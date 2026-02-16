@@ -25,11 +25,17 @@ systemctl daemon-reexec
 systemctl daemon-reload
 systemctl enable ssh-hostkey-init.service
 
-echo "[*] Updating system..."
-apt update -y
-apt upgrade -y
-apt autoremove -y
-apt autoclean -y
+echo "[*] Running apt update..."
+apt update -y 2>&1
+
+echo "[*] Running apt upgrade..."
+apt upgrade -y 2>&1
+
+echo "[*] Running apt autoremove..."
+apt autoremove -y 2>&1
+
+echo "[*] Running apt autoclean..."
+apt autoclean -y 2>&1
 
 echo "[*] Removing SSH host keys..."
 rm -f /etc/ssh/ssh_host_*
