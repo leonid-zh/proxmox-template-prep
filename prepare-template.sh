@@ -40,9 +40,19 @@ apt autoclean -y 2>&1
 echo "[*] Removing SSH host keys..."
 rm -f /etc/ssh/ssh_host_*
 
-echo "[*] Clearing shell history..."
-find /home -type f -name ".*history" -delete || true
-rm -f /root/.bash_history
+echo "[*] Clearing shell history (memory + disk)..."
+
+# Clear current shell history (if interactive)
+history -c 2>/dev/null || true
+history -w 2>/dev/null || true
+
+# Prevent further writes in this session
+unset HISTFILE || true
+
+# Remove history files for all users
+find /home -type f -name ".*history" -delete 2>/dev/null || true
+rm -f /root/.bash_history /root/.zsh_history 2>/dev/null || true
+
 
 echo "[*] Resetting machine-id..."
 truncate -s 0 /etc/machine-id
