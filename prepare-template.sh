@@ -1,102 +1,115 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 set +x
 
 SERVICE=/etc/systemd/system/ssh-hostkey-init.service
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_TEMPLATE="$SCRIPT_DIR/systemd/systemd-hostkey-unit.service"
+LOG_FILE=/var/log/template-prep.log
 
-echo "[*] Installing first-boot SSH hostkey service..."
+if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  echo "[!] This script must be run as root."
+  exit 1
+fi
 
-if [ ! -f "$SERVICE" ]; then
-echo "[*] Checking service template..."
+: >"$LOG_FILE"
+
+trap 'rc=$?; echo "[!] Failed (exit ${rc}) at line ${BASH_LINENO[0]}: ${BASH_COMMAND}"; echo "[!] See details in ${LOG_FILE}"; exit "${rc}"' ERR
+
+require_command() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "[!] Required command not found: $cmd"
+    exit 1
+  fi
+}
+
+run_step() {
+  local message="$1"
+  shift
+  echo "[*] $message"
+  "$@" >>"$LOG_FILE" 2>&1
+}
+
+run_optional_step() {
+  local message="$1"
+  shift
+  echo "[*] $message"
+  if ! "$@" >>"$LOG_FILE" 2>&1; then
+    echo "[!] Non-critical step failed: $message (see $LOG_FILE)"
+  fi
+}
+
+require_command systemctl
+require_command apt-get
+require_command install
+require_command truncate
+require_command find
+require_command rm
+require_command journalctl
+require_command sync
+
 if [ ! -f "$SERVICE_TEMPLATE" ]; then
   echo "[!] Service template not found: $SERVICE_TEMPLATE"
   exit 1
 fi
-echo "[*] Copying service template..."
-install -m 0644 "$SERVICE_TEMPLATE" "$SERVICE" >/dev/null 2>&1
+
+if [ ! -f "$SERVICE" ] || ! cmp -s "$SERVICE_TEMPLATE" "$SERVICE"; then
+  run_step "Installing first-boot SSH hostkey service..." install -m 0644 "$SERVICE_TEMPLATE" "$SERVICE"
 else
-echo "[*] Service file already exists: $SERVICE"
+  echo "[*] First-boot SSH hostkey service is already up to date."
 fi
 
-echo "[*] Re-executing systemd manager..."
-systemctl daemon-reexec >/dev/null 2>&1
-echo "[*] Reloading systemd unit files..."
-systemctl daemon-reload >/dev/null 2>&1
-echo "[*] Enabling first-boot SSH hostkey service..."
-systemctl enable ssh-hostkey-init.service >/dev/null 2>&1
+run_step "Reloading systemd unit files..." systemctl daemon-reload
+run_step "Enabling first-boot SSH hostkey service..." systemctl enable ssh-hostkey-init.service
 
-echo "[*] Updating package lists..."
-apt update -y >/dev/null 2>&1
+run_step "Updating package lists..." env DEBIAN_FRONTEND=noninteractive apt-get update
+run_step "Upgrading installed packages..." env DEBIAN_FRONTEND=noninteractive apt-get -y upgrade
+run_step "Removing unused packages..." env DEBIAN_FRONTEND=noninteractive apt-get -y autoremove
+run_step "Cleaning package cache..." env DEBIAN_FRONTEND=noninteractive apt-get -y autoclean
 
-echo "[*] Upgrading installed packages..."
-apt upgrade -y >/dev/null 2>&1
+run_step "Removing SSH host keys..." rm -f /etc/ssh/ssh_host_*
+run_step "Removing systemd random seed..." rm -f /var/lib/systemd/random-seed
 
-echo "[*] Removing unused packages..."
-apt autoremove -y >/dev/null 2>&1
+run_optional_step "Clearing in-memory shell history..." history -c
+run_optional_step "Writing cleared shell history..." history -w
+run_optional_step "Disabling history file for current session..." unset HISTFILE
+run_optional_step "Deleting user history files in /home..." find /home -type f -name ".*history" -delete
+run_optional_step "Deleting root history files..." rm -f /root/.bash_history /root/.zsh_history
 
-echo "[*] Cleaning package cache..."
-apt autoclean -y >/dev/null 2>&1
+run_step "Truncating /etc/machine-id..." truncate -s 0 /etc/machine-id
+run_step "Removing DBus machine-id..." rm -f /var/lib/dbus/machine-id
 
-echo "[*] Removing SSH host keys..."
-rm -f /etc/ssh/ssh_host_* >/dev/null 2>&1
-
-echo "[*] Clearing shell history (memory + disk)..."
-
-# Clear current shell history (if interactive)
-echo "[*] Clearing in-memory shell history..."
-history -c >/dev/null 2>&1 || true
-echo "[*] Writing cleared history state..."
-history -w >/dev/null 2>&1 || true
-
-# Prevent further writes in this session
-echo "[*] Disabling history file for current session..."
-unset HISTFILE || true
-
-# Remove history files for all users
-echo "[*] Deleting user history files in /home..."
-find /home -type f -name ".*history" -delete >/dev/null 2>&1 || true
-echo "[*] Deleting root history files..."
-rm -f /root/.bash_history /root/.zsh_history >/dev/null 2>&1 || true
-
-
-echo "[*] Resetting machine-id..."
-echo "[*] Truncating /etc/machine-id..."
-truncate -s 0 /etc/machine-id >/dev/null 2>&1
-echo "[*] Removing DBus machine-id..."
-rm -f /var/lib/dbus/machine-id >/dev/null 2>&1
-
-echo "[*] Cleaning cloud-init state (if installed)..."
 if command -v cloud-init >/dev/null 2>&1; then
-  echo "[*] Cleaning cloud-init logs and state..."
-  cloud-init clean --logs >/dev/null 2>&1
+  run_step "Cleaning cloud-init logs and state..." cloud-init clean --logs
 else
-  echo "[*] cloud-init not found, skipping"
+  echo "[*] cloud-init not found, skipping state cleanup."
 fi
 
-echo "[*] Cleaning system logs..."
+if [ -d /tmp ]; then
+  run_step "Cleaning temporary directory contents: /tmp" find /tmp -mindepth 1 -xdev -exec rm -rf -- {} +
+fi
 
-echo "[*] Removing syslog/message files..."
-rm -f /var/log/syslog /var/log/messages >/dev/null 2>&1 || true
-echo "[*] Removing authentication log files..."
-rm -f /var/log/auth.log /var/log/secure >/dev/null 2>&1 || true
+if [ -d /var/tmp ]; then
+  run_step "Cleaning temporary directory contents: /var/tmp" find /var/tmp -mindepth 1 -xdev -exec rm -rf -- {} +
+fi
 
-echo "[*] Rotating journal logs..."
-journalctl --rotate >/dev/null 2>&1 || true
-echo "[*] Vacuuming old journal entries..."
-journalctl --vacuum-time=1s >/dev/null 2>&1 || true
+if [ -d /var/log ]; then
+  run_step "Truncating text log files under /var/log" find /var/log -xdev -type f \( -name "*.log" -o -name "syslog" -o -name "messages" -o -name "secure" -o -name "auth.log" -o -name "kern.log" \) -exec truncate -s 0 {} +
+fi
 
+run_optional_step "Rotating journal logs..." journalctl --rotate
+run_optional_step "Vacuuming old journal entries..." journalctl --vacuum-size=16M
+
+run_step "Flushing filesystem buffers..." sync
 echo "[*] Template prepared. Power off and convert to template."
-echo "[*] Flushing filesystem buffers..."
-sync
+echo "[*] Detailed command output: $LOG_FILE"
 
 if [ -t 0 ]; then
   read -r -p "Power off now? [y/N] " REPLY
   case "$REPLY" in
     [yY]|[yY][eE][sS])
-      echo "[*] Powering off..."
-      systemctl poweroff
+      run_step "Powering off..." systemctl poweroff
       ;;
     *)
       echo "[*] Skipping power off."

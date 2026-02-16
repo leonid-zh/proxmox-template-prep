@@ -1,7 +1,9 @@
 [Unit]
 Description=Generate SSH host keys on first boot
 Before=ssh.service
-ConditionPathExists=!/etc/ssh/ssh_host_rsa_key
+ConditionPathIsDirectory=/etc/ssh
+ConditionPathExists=/usr/bin/ssh-keygen
+ConditionPathExistsGlob=!/etc/ssh/ssh_host_*_key
 
 [Service]
 Type=oneshot
