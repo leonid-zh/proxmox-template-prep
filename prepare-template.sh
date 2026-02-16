@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set +x
 
 SERVICE=/etc/systemd/system/ssh-hostkey-init.service
 
 echo "[*] Installing first-boot SSH hostkey service..."
 
 if [ ! -f "$SERVICE" ]; then
+echo "[*] Writing service file: $SERVICE"
 cat >"$SERVICE" <<'EOF'
 [Unit]
 Description=Generate SSH host keys on first boot
@@ -19,59 +21,79 @@ ExecStart=/usr/bin/ssh-keygen -A
 [Install]
 WantedBy=multi-user.target
 EOF
+else
+echo "[*] Service file already exists: $SERVICE"
 fi
 
-systemctl daemon-reexec
-systemctl daemon-reload
-systemctl enable ssh-hostkey-init.service
+echo "[*] Re-executing systemd manager..."
+systemctl daemon-reexec >/dev/null 2>&1
+echo "[*] Reloading systemd unit files..."
+systemctl daemon-reload >/dev/null 2>&1
+echo "[*] Enabling first-boot SSH hostkey service..."
+systemctl enable ssh-hostkey-init.service >/dev/null 2>&1
 
-echo "[*] Running apt update..."
-apt update -y 2>&1
+echo "[*] Updating package lists..."
+apt update -y >/dev/null 2>&1
 
-echo "[*] Running apt upgrade..."
-apt upgrade -y 2>&1
+echo "[*] Upgrading installed packages..."
+apt upgrade -y >/dev/null 2>&1
 
-echo "[*] Running apt autoremove..."
-apt autoremove -y 2>&1
+echo "[*] Removing unused packages..."
+apt autoremove -y >/dev/null 2>&1
 
-echo "[*] Running apt autoclean..."
-apt autoclean -y 2>&1
+echo "[*] Cleaning package cache..."
+apt autoclean -y >/dev/null 2>&1
 
 echo "[*] Removing SSH host keys..."
-rm -f /etc/ssh/ssh_host_*
+rm -f /etc/ssh/ssh_host_* >/dev/null 2>&1
 
 echo "[*] Clearing shell history (memory + disk)..."
 
 # Clear current shell history (if interactive)
-history -c 2>/dev/null || true
-history -w 2>/dev/null || true
+echo "[*] Clearing in-memory shell history..."
+history -c >/dev/null 2>&1 || true
+echo "[*] Writing cleared history state..."
+history -w >/dev/null 2>&1 || true
 
 # Prevent further writes in this session
+echo "[*] Disabling history file for current session..."
 unset HISTFILE || true
 
 # Remove history files for all users
-find /home -type f -name ".*history" -delete 2>/dev/null || true
-rm -f /root/.bash_history /root/.zsh_history 2>/dev/null || true
+echo "[*] Deleting user history files in /home..."
+find /home -type f -name ".*history" -delete >/dev/null 2>&1 || true
+echo "[*] Deleting root history files..."
+rm -f /root/.bash_history /root/.zsh_history >/dev/null 2>&1 || true
 
 
 echo "[*] Resetting machine-id..."
-truncate -s 0 /etc/machine-id
-rm -f /var/lib/dbus/machine-id
+echo "[*] Truncating /etc/machine-id..."
+truncate -s 0 /etc/machine-id >/dev/null 2>&1
+echo "[*] Removing DBus machine-id..."
+rm -f /var/lib/dbus/machine-id >/dev/null 2>&1
 
 echo "[*] Cleaning cloud-init state (if installed)..."
 if command -v cloud-init >/dev/null 2>&1; then
-  cloud-init clean --logs
+  echo "[*] Cleaning cloud-init logs and state..."
+  cloud-init clean --logs >/dev/null 2>&1
+else
+  echo "[*] cloud-init not found, skipping"
 fi
 
 echo "[*] Cleaning system logs..."
 
-rm -f /var/log/syslog /var/log/messages 2>/dev/null || true
-rm -f /var/log/auth.log /var/log/secure 2>/dev/null || true
+echo "[*] Removing syslog/message files..."
+rm -f /var/log/syslog /var/log/messages >/dev/null 2>&1 || true
+echo "[*] Removing authentication log files..."
+rm -f /var/log/auth.log /var/log/secure >/dev/null 2>&1 || true
 
-journalctl --rotate || true
-journalctl --vacuum-time=1s || true
+echo "[*] Rotating journal logs..."
+journalctl --rotate >/dev/null 2>&1 || true
+echo "[*] Vacuuming old journal entries..."
+journalctl --vacuum-time=1s >/dev/null 2>&1 || true
 
 echo "[*] Template prepared. Power off and convert to template."
+echo "[*] Flushing filesystem buffers..."
 sync
 
 if [ -t 0 ]; then
