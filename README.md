@@ -1,4 +1,11 @@
 # Proxmox VM Template Preparation Script
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Shell: Bash](https://img.shields.io/badge/Shell-Bash-121011?logo=gnu-bash&logoColor=white)](prepare-template.sh)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue?logo=linux&logoColor=white)](https://www.linux.org/)
+
+## Preview
+
 ![Preview](image/preview.png)
 
 Production-ready script for preparing Linux virtual machines before converting them into clean Proxmox templates.
@@ -67,3 +74,7 @@ Power off now? [y/N]
 - `y` / `yes`: powers off the VM
 - any other input (or Enter): skips power off
 - non-interactive shell: power-off prompt is skipped automatically
+
+## License
+
+This project is licensed under the MIT License. See `LICENSE` for details.
